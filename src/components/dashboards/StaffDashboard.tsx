@@ -1,14 +1,51 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useApp } from "../../context/AppContext"
-import { CheckSquare, Clock, Send, AlertTriangle, Download, CheckCircle, XCircle } from "lucide-react"
+import { CheckSquare, Clock, Send, AlertTriangle, Download, CheckCircle, XCircle, LogOut } from "lucide-react"
 import { FileViewer } from "../FileViewer"
 
 export function StaffDashboard() {
   const { state, dispatch } = useApp()
   const [selectedTask, setSelectedTask] = useState(null)
   const [showProfileMenu, setShowProfileMenu] = useState(false)
+  const [currentTime, setCurrentTime] = useState(new Date())
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date())
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [])
+
+  const formatDateTime = (date) => {
+    const days = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"]
+    const months = [
+      "Januari",
+      "Februari",
+      "Maret",
+      "April",
+      "Mei",
+      "Juni",
+      "Juli",
+      "Agustus",
+      "September",
+      "Oktober",
+      "November",
+      "Desember",
+    ]
+
+    const dayName = days[date.getDay()]
+    const day = date.getDate()
+    const month = months[date.getMonth()]
+    const year = date.getFullYear()
+    const time = date.toLocaleTimeString("id-ID", { hour12: false })
+
+    return {
+      time,
+      date: `${dayName}, ${day} ${month} ${year}`,
+    }
+  }
 
   const getCurrentUserAssignment = (report) => {
     return report.assignments?.find((assignment) => assignment.staffName === state.currentUser?.name)
@@ -126,8 +163,41 @@ export function StaffDashboard() {
     dispatch({ type: "LOGOUT" })
   }
 
+  const { time, date } = formatDateTime(currentTime)
+
   return (
     <div className="min-h-screen bg-gray-50">
+      <div className="bg-white border-b border-gray-200 px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-semibold text-gray-900">Tracking Letters</h1>
+            <div className="flex items-center gap-2 text-sm text-gray-600 mt-1">
+              <Clock className="w-4 h-4" />
+              <span>{time}</span>
+              <span>{date}</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+              Keluar
+            </button>
+            <div className="flex items-center gap-3">
+              <div className="text-right">
+                <div className="text-sm font-medium text-gray-900">{state.currentUser?.name || "User"}</div>
+                <div className="text-xs text-blue-600">Sesi Diperpanjang</div>
+              </div>
+              <div className="w-10 h-10 bg-gray-900 rounded-full flex items-center justify-center text-white font-medium">
+                {state.currentUser?.name?.charAt(0).toUpperCase() || "U"}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="p-6">
         <div className="mb-8">
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Dashboard Staff</h2>

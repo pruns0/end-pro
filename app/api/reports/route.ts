@@ -1,5 +1,4 @@
-import { createServerClient } from "@/lib/supabase/server"
-import { cookies } from "next/headers"
+import { createServiceRoleClient } from "@/lib/supabase/server"
 import { type NextRequest, NextResponse } from "next/server"
 
 function localUserIdToUuid(localId: string): string {
@@ -30,6 +29,8 @@ export async function POST(request: NextRequest) {
     const reportData = await request.json()
     const { originalFiles, currentUser, ...reportFields } = reportData
 
+    console.log("[v0] Report creation started with user:", currentUser)
+
     if (!currentUser || !currentUser.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
@@ -38,10 +39,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Only TU can create reports" }, { status: 403 })
     }
 
-    const cookieStore = cookies()
-    const supabase = createServerClient(cookieStore)
+    const supabase = createServiceRoleClient()
+    console.log("[v0] Created service role client")
 
     const userUuid = localUserIdToUuid(currentUser.id)
+    console.log("[v0] Converted user ID:", currentUser.id, "to UUID:", userUuid)
 
     // Generate tracking number
     const trackingNumber = `TRK-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`
@@ -52,28 +54,30 @@ export async function POST(request: NextRequest) {
     const validPriorities = ["rendah", "sedang", "tinggi"]
     const priority = validPriorities.includes(reportFields.priority) ? reportFields.priority : "sedang"
 
+    const insertData = {
+      no_surat: reportFields.noSurat,
+      hal: reportFields.hal,
+      layanan: reportFields.layanan,
+      dari: reportFields.dari,
+      tanggal_surat: reportFields.tanggalSurat,
+      tanggal_agenda: reportFields.tanggalAgenda,
+      status: status,
+      priority: priority,
+      created_by: userUuid,
+      current_holder: userUuid,
+    }
+    console.log("[v0] Attempting to insert report data:", insertData)
+
     // Insert report into database
-    const { data: report, error: reportError } = await supabase
-      .from("reports")
-      .insert({
-        no_surat: reportFields.noSurat,
-        hal: reportFields.hal,
-        layanan: reportFields.layanan,
-        dari: reportFields.dari,
-        tanggal_surat: reportFields.tanggalSurat,
-        tanggal_agenda: reportFields.tanggalAgenda,
-        status: status,
-        priority: priority,
-        created_by: userUuid, // Use converted UUID
-        current_holder: userUuid, // Use converted UUID
-      })
-      .select()
-      .single()
+    const { data: report, error: reportError } = await supabase.from("reports").insert(insertData).select().single()
 
     if (reportError) {
-      console.error("Error creating report:", reportError)
+      console.error("[v0] Error creating report:", reportError)
+      console.error("[v0] Error details:", JSON.stringify(reportError, null, 2))
       return NextResponse.json({ error: "Failed to create report" }, { status: 500 })
     }
+
+    console.log("[v0] Report created successfully:", report)
 
     // Insert file attachments if any
     if (originalFiles && originalFiles.length > 0) {
@@ -128,8 +132,7 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const cookieStore = cookies()
-    const supabase = createServerClient(cookieStore)
+    const supabase = createServiceRoleClient()
 
     const { data: reports, error: reportsError } = await supabase
       .from("reports")

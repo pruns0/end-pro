@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useApp } from "../../context/AppContext"
-import { User, Plus, Edit, Trash2, Users, FileText, UserCheck, Shield, Settings } from "lucide-react"
+import { Plus, Edit, Trash2, Users, FileText, Clock, LogOut } from "lucide-react"
 import { UserForm } from "../forms/UserForm"
 import { createClient } from "../../../lib/supabase/client"
 
@@ -13,12 +13,46 @@ export function AdminDashboard() {
   const [showProfileMenu, setShowProfileMenu] = useState(false)
   const [loading, setLoading] = useState(false)
   const [supabaseUsers, setSupabaseUsers] = useState([])
+  const [currentTime, setCurrentTime] = useState(new Date())
 
   const supabase = createClient()
 
   useEffect(() => {
     loadUsersFromDatabase()
+    const timer = setInterval(() => {
+      setCurrentTime(new Date())
+    }, 1000)
+    return () => clearInterval(timer)
   }, [])
+
+  const formatDateTime = (date) => {
+    const days = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"]
+    const months = [
+      "Januari",
+      "Februari",
+      "Maret",
+      "April",
+      "Mei",
+      "Juni",
+      "Juli",
+      "Agustus",
+      "September",
+      "Oktober",
+      "November",
+      "Desember",
+    ]
+
+    const dayName = days[date.getDay()]
+    const day = date.getDate()
+    const month = months[date.getMonth()]
+    const year = date.getFullYear()
+    const time = date.toLocaleTimeString("id-ID", { hour12: false })
+
+    return {
+      time,
+      date: `${dayName}, ${day} ${month} ${year}`,
+    }
+  }
 
   const loadUsersFromDatabase = async () => {
     try {
@@ -37,8 +71,8 @@ export function AdminDashboard() {
       const mappedProfiles =
         profiles?.map((profile) => ({
           ...profile,
-          id: profile.user_id || profile.id, // Use user_id if available, fallback to UUID
-          supabase_id: profile.id, // Keep UUID for internal operations
+          id: profile.user_id || profile.id,
+          supabase_id: profile.id,
         })) || []
 
       setSupabaseUsers(mappedProfiles)
@@ -72,7 +106,6 @@ export function AdminDashboard() {
         }
 
         if (userToDelete.supabase_id) {
-          // This is a Supabase user, delete from database and auth
           const { data: profile, error: profileError } = await supabase
             .from("profiles")
             .select("*")
@@ -121,7 +154,6 @@ export function AdminDashboard() {
           dispatch({ type: "DELETE_USER", payload: userToDelete.id })
           await loadUsersFromDatabase()
         } else {
-          // This is an AppContext user, delete from state only
           dispatch({ type: "DELETE_USER", payload: userToDelete.id })
           alert("Pengguna berhasil dihapus dari sistem")
         }
@@ -140,7 +172,6 @@ export function AdminDashboard() {
 
       if (editingUser) {
         if (editingUser.supabase_id) {
-          // This is a Supabase user, update in database
           const { error } = await supabase
             .from("profiles")
             .update({
@@ -157,7 +188,6 @@ export function AdminDashboard() {
           }
 
           if (userData.password && userData.password.trim() !== "") {
-            // Get the auth user ID from the profile
             const { data: profile, error: profileError } = await supabase
               .from("profiles")
               .select("*")
@@ -170,11 +200,9 @@ export function AdminDashboard() {
               return
             }
 
-            // Update password using Supabase admin API
-            const { error: passwordError } = await supabase.auth.admin.updateUserById(
-              profile.id, // Use the UUID from profiles table
-              { password: userData.password },
-            )
+            const { error: passwordError } = await supabase.auth.admin.updateUserById(profile.id, {
+              password: userData.password,
+            })
 
             if (passwordError) {
               console.error("Error updating password:", passwordError)
@@ -186,14 +214,12 @@ export function AdminDashboard() {
           await loadUsersFromDatabase()
           alert("Pengguna berhasil diupdate" + (userData.password ? " (termasuk password)" : ""))
         } else {
-          // This is an AppContext user, update in state only
           dispatch({ type: "UPDATE_USER", payload: { ...userData, id: editingUser.id } })
           alert("Pengguna berhasil diupdate")
         }
       } else {
-        const originalUserId = userData.id // Keep the original ID like "yolan"
+        const originalUserId = userData.id
 
-        // Check if user_id already exists in profiles table
         const { data: existingProfile, error: checkError } = await supabase
           .from("profiles")
           .select("user_id")
@@ -201,7 +227,6 @@ export function AdminDashboard() {
           .single()
 
         if (checkError && checkError.code !== "PGRST116") {
-          // PGRST116 means no rows found, which is what we want
           console.error("Error checking existing user:", checkError)
           alert("Gagal memeriksa pengguna yang sudah ada: " + checkError.message)
           return
@@ -214,8 +239,8 @@ export function AdminDashboard() {
 
         const sanitizedId = userData.id
           .toLowerCase()
-          .replace(/[^a-z0-9]/g, "") // Remove all non-alphanumeric characters
-          .substring(0, 50) // Limit length to prevent overly long emails
+          .replace(/[^a-z0-9]/g, "")
+          .substring(0, 50)
 
         const email = `${sanitizedId}@sitrack.gov.id`
 
@@ -256,7 +281,7 @@ export function AdminDashboard() {
           }
         }
 
-        dispatch({ type: "ADD_USER", payload: { ...userData, id: originalUserId } }) // Use original ID
+        dispatch({ type: "ADD_USER", payload: { ...userData, id: originalUserId } })
         alert("Pengguna berhasil ditambahkan")
       }
 
@@ -285,63 +310,96 @@ export function AdminDashboard() {
     staffUsers: allUsers.filter((u) => u.role === "Staff").length,
   }
 
+  const { time, date } = formatDateTime(currentTime)
+
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="p-6">
-        <div className="mb-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Dashboard Administrator</h2>
-          <p className="text-gray-600">Kelola akun pengguna sistem tracking pesan dan workflow</p>
-          {loading && <p className="text-blue-600 text-sm mt-2">Loading...</p>}
+      <div className="bg-white border-b border-gray-200 px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-semibold text-gray-900">Tracking Letters</h1>
+            <div className="flex items-center gap-2 text-sm text-gray-600 mt-1">
+              <Clock className="w-4 h-4" />
+              <span>{time}</span>
+              <span>{date}</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+              Keluar
+            </button>
+            <div className="flex items-center gap-3">
+              <div className="text-right">
+                <div className="text-sm font-medium text-gray-900">{state.currentUser?.name || "User"}</div>
+                <div className="text-xs text-blue-600">Sesi Diperpanjang</div>
+              </div>
+              <div className="w-10 h-10 bg-gray-900 rounded-full flex items-center justify-center text-white font-medium">
+                {state.currentUser?.name?.charAt(0).toUpperCase() || "U"}
+              </div>
+            </div>
+          </div>
         </div>
+      </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
+      <div className="p-6">
+        <div className="grid grid-cols-5 gap-6 mb-8">
           <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Total Pengguna</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.totalUsers}</p>
+                <p className="text-sm font-medium text-gray-600 mb-2">Total Users</p>
+                <p className="text-3xl font-bold text-gray-900">{stats.totalUsers}</p>
               </div>
-              <Users className="w-8 h-8 text-blue-500" />
+              <Users className="w-6 h-6 text-gray-500" />
             </div>
           </div>
 
           <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Admin</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.adminUsers}</p>
+                <p className="text-sm font-medium text-gray-600 mb-2">Admin</p>
+                <p className="text-3xl font-bold text-red-600">{stats.adminUsers}</p>
               </div>
-              <Shield className="w-8 h-8 text-purple-500" />
+              <div className="w-6 h-6 rounded-full bg-red-100 flex items-center justify-center">
+                <div className="w-3 h-3 rounded-full bg-red-500"></div>
+              </div>
             </div>
           </div>
 
           <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Tata Usaha</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.tuUsers}</p>
+                <p className="text-sm font-medium text-gray-600 mb-2">Koordinator</p>
+                <p className="text-3xl font-bold text-blue-600">{stats.coordinatorUsers}</p>
               </div>
-              <FileText className="w-8 h-8 text-blue-500" />
+              <div className="w-6 h-6">
+                <svg viewBox="0 0 24 24" className="w-full h-full text-blue-500">
+                  <path fill="currentColor" d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z" />
+                </svg>
+              </div>
             </div>
           </div>
 
           <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Koordinator</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.coordinatorUsers}</p>
+                <p className="text-sm font-medium text-gray-600 mb-2">Tata Usaha</p>
+                <p className="text-3xl font-bold text-green-600">{stats.tuUsers}</p>
               </div>
-              <UserCheck className="w-8 h-8 text-green-500" />
+              <FileText className="w-6 h-6 text-green-500" />
             </div>
           </div>
 
           <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Staff</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.staffUsers}</p>
+                <p className="text-sm font-medium text-gray-600 mb-2">Staff</p>
+                <p className="text-3xl font-bold text-gray-900">{stats.staffUsers}</p>
               </div>
-              <Settings className="w-8 h-8 text-gray-500" />
+              <Users className="w-6 h-6 text-gray-500" />
             </div>
           </div>
         </div>
@@ -349,94 +407,97 @@ export function AdminDashboard() {
         <div className="bg-white rounded-lg shadow-sm border border-gray-200">
           <div className="p-6 border-b border-gray-200">
             <div className="flex justify-between items-center">
-              <h3 className="text-lg font-semibold text-gray-900">Manajemen Pengguna</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Manajemen User</h3>
               <button
                 onClick={handleAddUser}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
               >
                 <Plus className="w-4 h-4" />
-                Tambah Pengguna
+                Tambah User
               </button>
             </div>
           </div>
 
-          <div className="p-6">
-            <h4 className="text-lg font-medium text-gray-900 mb-4">Daftar Pengguna ({allUsers.length})</h4>
-
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="text-left py-3 px-4 font-medium text-gray-600 text-sm">NAMA</th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-600 text-sm">ID PENGGUNA</th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-600 text-sm">ROLE</th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-600 text-sm">AKSI</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {allUsers.map((user) => (
-                    <tr key={user.supabase_id || user.id} className="border-b border-gray-100 hover:bg-gray-50">
-                      <td className="py-4 px-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
-                            <User className="w-4 h-4 text-gray-600" />
-                          </div>
-                          <span className="font-medium text-gray-900">{user.name}</span>
-                        </div>
-                      </td>
-                      <td className="py-4 px-4 text-sm text-gray-900">{user.id}</td>
-                      <td className="py-4 px-4">
-                        <span
-                          className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                            user.role === "Admin"
-                              ? "bg-purple-100 text-purple-800"
-                              : user.role === "TU"
-                                ? "bg-blue-100 text-blue-800"
-                                : user.role === "Koordinator"
-                                  ? "bg-green-100 text-green-800"
-                                  : "bg-gray-100 text-gray-800"
-                          }`}
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="text-left py-4 px-6 font-medium text-gray-600 text-sm">Username</th>
+                  <th className="text-left py-4 px-6 font-medium text-gray-600 text-sm">Nama</th>
+                  <th className="text-left py-4 px-6 font-medium text-gray-600 text-sm">Role</th>
+                  <th className="text-left py-4 px-6 font-medium text-gray-600 text-sm">Dibuat</th>
+                  <th className="text-left py-4 px-6 font-medium text-gray-600 text-sm">Login Terakhir</th>
+                  <th className="text-left py-4 px-6 font-medium text-gray-600 text-sm">Aksi</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allUsers.map((user) => (
+                  <tr key={user.supabase_id || user.id} className="border-b border-gray-100 hover:bg-gray-50">
+                    <td className="py-4 px-6 text-sm font-medium text-gray-900">{user.id}</td>
+                    <td className="py-4 px-6 text-sm text-gray-900">{user.name}</td>
+                    <td className="py-4 px-6">
+                      <span
+                        className={`px-3 py-1 inline-flex text-xs font-medium rounded-full ${
+                          user.role === "Admin"
+                            ? "bg-red-100 text-red-800"
+                            : user.role === "TU"
+                              ? "bg-gray-100 text-gray-800"
+                              : user.role === "Koordinator"
+                                ? "bg-gray-900 text-white"
+                                : "bg-gray-100 text-gray-800"
+                        }`}
+                      >
+                        {user.role === "Admin" ? "Administrator" : user.role}
+                      </span>
+                    </td>
+                    <td className="py-4 px-6 text-sm text-gray-600">
+                      {user.created_at ? new Date(user.created_at).toLocaleDateString("id-ID") : "01/01/2024"}
+                    </td>
+                    <td className="py-4 px-6 text-sm text-gray-600">
+                      {user.last_login ? new Date(user.last_login).toLocaleDateString("id-ID") : "-"}
+                    </td>
+                    <td className="py-4 px-6">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleEditUser(user)}
+                          disabled={loading}
+                          className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
+                          title="Edit Pengguna"
                         >
-                          {user.role}
-                        </span>
-                      </td>
-                      <td className="py-4 px-4">
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleEditUser(user)}
-                            disabled={loading}
-                            className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
-                            title="Edit Pengguna"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteUser(user.supabase_id || user.id)}
-                            disabled={loading}
-                            className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
-                            title="Hapus Pengguna"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                  {allUsers.length === 0 && (
-                    <tr>
-                      <td colSpan={4} className="py-8 text-center text-gray-500">
-                        Belum ada pengguna yang terdaftar.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteUser(user.supabase_id || user.id)}
+                          disabled={loading}
+                          className="p-2 text-white bg-red-500 hover:bg-red-600 rounded-lg transition-colors disabled:opacity-50"
+                          title="Hapus Pengguna"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {allUsers.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-gray-500">
+                      Belum ada pengguna yang terdaftar.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
 
-      {showProfileMenu && <div className="fixed inset-0 z-40" onClick={() => setShowProfileMenu(false)} />}
+      {loading && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-4">
+            <p className="text-gray-600">Loading...</p>
+          </div>
+        </div>
+      )}
 
       {showForm && (
         <UserForm

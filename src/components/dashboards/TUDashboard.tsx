@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useApp } from "../../context/AppContext"
 import { SERVICES } from "../../types"
 import {
@@ -16,9 +16,11 @@ import {
   Trash2,
   Send,
   Package,
+  LogOut,
 } from "lucide-react"
 import { ReportForm } from "../forms/ReportForm"
 import { ForwardForm } from "../forms/ForwardForm"
+import { createClient } from "../../../lib/supabase/client"
 
 export function TUDashboard() {
   const { state, dispatch } = useApp()
@@ -32,12 +34,87 @@ export function TUDashboard() {
   const [statusFilter, setStatusFilter] = useState("")
   const [openActionMenu, setOpenActionMenu] = useState(null)
   const [showProfileMenu, setShowProfileMenu] = useState(false)
+  const [currentTime, setCurrentTime] = useState(new Date())
+
+  const [reports, setReports] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
   const [trackingQuery, setTrackingQuery] = useState("")
   const [trackingResult, setTrackingResult] = useState(null)
   const [isTracking, setIsTracking] = useState(false)
 
-  const userReports = state.reports.filter((report) => report.createdBy === state.currentUser?.id)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date())
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [])
+
+  const fetchReports = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from("reports")
+        .select(`
+          *,
+          file_attachments (*)
+        `)
+        .order("created_at", { ascending: false })
+
+      if (error) {
+        console.error("Error fetching reports:", error)
+        setError("Gagal memuat data laporan")
+        return
+      }
+
+      console.log("[v0] Fetched reports from database:", data)
+      setReports(data || [])
+    } catch (err) {
+      console.error("Error in fetchReports:", err)
+      setError("Terjadi kesalahan saat memuat data")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchReports()
+  }, [])
+
+  const formatDateTime = (date) => {
+    const days = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"]
+    const months = [
+      "Januari",
+      "Februari",
+      "Maret",
+      "April",
+      "Mei",
+      "Juni",
+      "Juli",
+      "Agustus",
+      "September",
+      "Oktober",
+      "November",
+      "Desember",
+    ]
+
+    const dayName = days[date.getDay()]
+    const day = date.getDate()
+    const month = months[date.getMonth()]
+    const year = date.getFullYear()
+    const time = date.toLocaleTimeString("id-ID", { hour12: false })
+
+    return {
+      time,
+      date: `${dayName}, ${day} ${month} ${year}`,
+    }
+  }
+
+  const userReports = reports
 
   const filteredReports = userReports.filter((report) => {
     const matchesService = !serviceFilter || report.layanan === serviceFilter
@@ -45,7 +122,7 @@ export function TUDashboard() {
     const matchesSearch =
       !searchQuery ||
       report.hal?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      report.noSurat?.toLowerCase().includes(searchQuery.toLowerCase())
+      report.no_surat?.toLowerCase().includes(searchQuery.toLowerCase())
 
     return matchesService && matchesStatus && matchesSearch
   })
@@ -66,9 +143,9 @@ export function TUDashboard() {
 
     await new Promise((resolve) => setTimeout(resolve, 1000))
 
-    const foundReport = state.reports.find(
+    const foundReport = userReports.find(
       (report) =>
-        report.noSurat?.toLowerCase().includes(trackingQuery.toLowerCase()) ||
+        report.no_surat?.toLowerCase().includes(trackingQuery.toLowerCase()) ||
         report.id?.toLowerCase().includes(trackingQuery.toLowerCase()) ||
         report.hal?.toLowerCase().includes(trackingQuery.toLowerCase()),
     )
@@ -76,7 +153,7 @@ export function TUDashboard() {
     if (foundReport) {
       const trackingInfo = {
         found: true,
-        letterNumber: foundReport.noSurat || foundReport.id,
+        letterNumber: foundReport.no_surat || foundReport.id,
         subject: foundReport.hal,
         status: foundReport.status,
         progress: foundReport.progress || 0,
@@ -221,9 +298,25 @@ export function TUDashboard() {
     setOpenActionMenu(null)
   }
 
-  const handleDeleteReport = (reportId) => {
+  const handleDeleteReport = async (reportId) => {
     if (confirm("Apakah Anda yakin ingin menghapus laporan ini?")) {
-      dispatch({ type: "DELETE_REPORT", payload: reportId })
+      try {
+        const supabase = createClient()
+        const { error } = await supabase.from("reports").delete().eq("id", reportId)
+
+        if (error) {
+          console.error("Error deleting report:", error)
+          alert("Gagal menghapus laporan")
+          return
+        }
+
+        // Refresh reports list
+        await fetchReports()
+        alert("Laporan berhasil dihapus")
+      } catch (err) {
+        console.error("Error in handleDeleteReport:", err)
+        alert("Terjadi kesalahan saat menghapus laporan")
+      }
     }
     setOpenActionMenu(null)
   }
@@ -234,34 +327,10 @@ export function TUDashboard() {
     setOpenActionMenu(null)
   }
 
-  const handleReportSubmit = (reportData) => {
-    const newReport = {
-      ...reportData,
-      id: editingReport?.id || `RPT${Date.now()}`,
-      createdBy: state.currentUser?.id || "",
-      attachments: reportData.originalFiles || [],
-      assignments: editingReport?.assignments || [],
-      assignedStaff: editingReport?.assignedStaff || [],
-      assignedCoordinators: editingReport?.assignedCoordinators || [],
-      currentHolder: editingReport?.currentHolder || "",
-      progress: editingReport?.progress || 0,
-      priority: reportData.priority || "Sedang", // Added priority field
-      workflow: editingReport?.workflow || [
-        {
-          id: `w${Date.now()}`,
-          action: `Dibuat oleh ${state.currentUser?.name}`,
-          user: state.currentUser?.name || "",
-          timestamp: new Date().toISOString(),
-          status: "completed",
-        },
-      ],
-    }
-
-    if (editingReport) {
-      dispatch({ type: "UPDATE_REPORT", payload: newReport })
-    } else {
-      dispatch({ type: "ADD_REPORT", payload: newReport })
-    }
+  const handleReportSubmit = async (reportData) => {
+    // The ReportForm already handles API submission
+    // Just refresh the reports list after successful submission
+    await fetchReports()
     setShowReportForm(false)
     setEditingReport(null)
   }
@@ -306,12 +375,64 @@ export function TUDashboard() {
     setSearchQuery("")
   }
 
+  const { time, date } = formatDateTime(currentTime)
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Memuat data laporan...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
+      <div className="bg-white border-b border-gray-200 px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-semibold text-gray-900">Tracking Letters</h1>
+            <div className="flex items-center gap-2 text-sm text-gray-600 mt-1">
+              <Clock className="w-4 h-4" />
+              <span>{time}</span>
+              <span>{date}</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+              Keluar
+            </button>
+            <div className="flex items-center gap-3">
+              <div className="text-right">
+                <div className="text-sm font-medium text-gray-900">{state.currentUser?.name || "User"}</div>
+                <div className="text-xs text-blue-600">Sesi Diperpanjang</div>
+              </div>
+              <div className="w-10 h-10 bg-gray-900 rounded-full flex items-center justify-center text-white font-medium">
+                {state.currentUser?.name?.charAt(0).toUpperCase() || "U"}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="p-4 sm:p-6">
         <div className="mb-6 sm:mb-8">
           <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">Dashboard Tata Usaha</h2>
           <p className="text-sm sm:text-base text-gray-600">Kelola pengajuan dan laporan kepegawaian</p>
+          {error && (
+            <div className="mt-2 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
+              {error}
+              <button onClick={fetchReports} className="ml-2 text-red-800 underline hover:no-underline">
+                Coba lagi
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-6 mb-6 sm:mb-8">
@@ -485,7 +606,7 @@ export function TUDashboard() {
                         {filteredReports.map((report) => (
                           <tr key={report.id} className="hover:bg-gray-50">
                             <td className="px-3 sm:px-6 py-4 text-sm font-medium text-gray-900">
-                              <div className="max-w-32 sm:max-w-none truncate">{report.hal || report.noSurat}</div>
+                              <div className="max-w-32 sm:max-w-none truncate">{report.hal || report.no_surat}</div>
                             </td>
                             <td className="px-3 sm:px-6 py-4 text-sm text-gray-900">
                               <div className="max-w-24 sm:max-w-xs truncate">{report.layanan}</div>
@@ -494,7 +615,7 @@ export function TUDashboard() {
                               {state.currentUser?.name || "TU"}
                             </td>
                             <td className="px-3 sm:px-6 py-4 text-sm text-gray-900 hidden md:table-cell">
-                              {new Date(report.createdAt || Date.now()).toLocaleDateString("id-ID")}
+                              {new Date(report.created_at || Date.now()).toLocaleDateString("id-ID")}
                             </td>
                             <td className="px-3 sm:px-6 py-4 whitespace-nowrap">
                               <span
